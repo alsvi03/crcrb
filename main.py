@@ -20,14 +20,26 @@ app = FastAPI()
 @app.post("/process_command")
 async def process_command(command: str = Body(...)):
    # response = f"Вы прислали команду: {command}"
-    response = check_command(command)
+    com, address, ago, cnt, trf, Km, NK,k1,k2 = check_command(command)
+   # отправляю это все в базу
+    response = create_answer(json_answer,address,com,k1,k2)
     return {"response": response}
 
 
 
+#-------------------------------------
+#пример ответа
+
+#для day,incday,allen
+json_answer = [{'time': '2024-07-01T14:15:00Z', 'ep': 1032434.8, 'em': 774.2, 'rp': 1847870.1, 'rm': 0.1, 'tarif': '0', 'vm_id': '7'},
+               {'time': '2024-07-01T00:00:00Z', 'ep': 207243.9, 'em': 84.9, 'rp': 352913.7, 'rm': 0.1, 'tarif': '4', 'vm_id': '7'},
+               {'time': '2024-07-01T00:00:00Z', 'ep': 721502.7, 'em': 328.5, 'rp': 1295172.4, 'rm': 0.1, 'tarif': '1', 'vm_id': '7'},
+               {'time': '2024-07-01T00:00:00Z', 'ep': 227568.3, 'em': 55.0, 'rp': 401458.2, 'rm': 0.0, 'tarif': '3', 'vm_id': '7'}]
+#-------------------------------------
 
 
 tBufUART: bytearray = [0] * 40
+
 
 #
 # def ncp_getCRC(buff, size):  # подсчет контрольной суммы
@@ -122,7 +134,78 @@ def check_command(buff): #узнаем что у нас запрашивают
     trf = int(buff[13])
     Km = int(buff[7]) # номер счетчика *4 (4 вида энергии)
     NK = int(buff[9]) # кол-во видов энергии
-    return com,address,ago,cnt,trf,Km,NK
+    k1 = int(buff[14]) #код запроса
+    k2 = int(buff[15])
+    return com,address,ago,cnt,trf,Km,NK,k1,k2
+
+
+def create_answer(json,address,com,k1,k2):
+    global tBufUART
+    tBufUART[0] = 0xc3 #начальный байт 55 для запроса, С3 для ответа
+    tBufUART[1] = int(str(hex(address)[2:])[1:],16) #адрес
+    tBufUART[2] = 0x00
+    tBufUART[3] = 0x20 #кол-во байт в пакете
+    tBufUART[4] = 0x00
+    if com == 'incday':
+        tBufUART[5] = 0x40 #Номер функции
+    elif com == 'incmonth':
+        tBufUART[5] = 0x42
+    elif com == 'min30':
+        tBufUART[5] = 0x54
+    elif com == 'instant':
+        tBufUART[5] = 0xf1
+    elif com == 'month':
+        tBufUART[5] = 0x80
+
+    tBufUART[6] = 0x00 #данные 6-21
+    tBufUART[7] = 0x00
+    tBufUART[8] = 0x00
+    tBufUART[9] = 0x00
+
+    tBufUART[10] = 0x00
+    tBufUART[11] = 0x00
+    tBufUART[12] = 0x00
+    tBufUART[13] = 0x00
+
+    tBufUART[14] = 0x00
+    tBufUART[15] = 0x00
+    tBufUART[16] = 0x00
+    tBufUART[17] = 0x00
+
+    tBufUART[18] = 0x00
+    tBufUART[19] = 0x00
+    tBufUART[20] = 0x00
+    tBufUART[21] = 0x00
+
+    tBufUART[22] = 0x00 #Код достоверности
+
+    time_string = json[0]["time"]
+    date_part, time_part = time_string[:-1].split('T')
+    year, month, day = date_part.split('-')
+    hour, minute, second = time_part.split(':')
+
+    tBufUART[23] = int(minute) #Минуты
+    tBufUART[24] = int(hour) #Часы
+    tBufUART[25] = int(day) #День
+    tBufUART[26] = int(month) #Месяц
+    tBufUART[27] = int(year) #Год
+
+    tBufUART[28] = k1 #Код запроса, повторяющийся в ответ
+    tBufUART[29] = k2
+
+    tBufUART[30] = 0x00 #Контрольная сумма
+    tBufUART[31] = 0x00
+
+    ncp_addCRC(tBufUART, 30)
+    tBufUART = tBufUART[:32]
+    int_to_hex(tBufUART, 32)
+
+    out = ""
+    for i in range(len(tBufUART)):
+        out += tBufUART[i]
+
+
+    return out
 
 
 def create_Packege(): #не нужен
